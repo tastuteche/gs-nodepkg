@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE repositories SYSTEM "/dtd/repositories.dtd">
+<repositories xmlns="" version="1.0">
+<repo quality="experimental" status="unofficial">
+    <name>nodepkg</name>
+    <description>nodejs packages</description>
+    <homepage>https://www.npmjs.com</homepage>
+    <owner>
+      <email>tastuteche@yahoo.com</email>
+      <name>Tastu Teche</name>
+    </owner>
+    <source type="g-sorcery">gs-nodepkg nodepkg</source>
+</repo>
+</repositories>
