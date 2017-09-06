@@ -13,15 +13,42 @@
 
 import datetime
 import re
-import time
-
-import bs4
-
+import os
 from g_sorcery.db_layout import BSON_FILE_SUFFIX
-from g_sorcery.exceptions import DownloadingError
-from g_sorcery.g_collections import Package, serializable_elist
+from g_sorcery.g_collections import Package
 from g_sorcery.package_db import DBGenerator, PackageDB
+from .utils import get_ebuild_data, get_pkg_json, get_common_data
 import subprocess
+
+
+class NodepkgDB(PackageDB):
+    def __init__(self, directory,
+                 persistent_datadir=None,
+                 preferred_layout_version=1,
+                 preferred_db_version=1,
+                 preferred_category_format=BSON_FILE_SUFFIX):
+        super(PackageDB, self).__init__(directory=directory,
+                                        persistent_datadir=persistent_datadir,
+                                        preferred_layout_version=preferred_layout_version,
+                                        preferred_db_version=preferred_db_version,
+                                        preferred_category_format=preferred_category_format)
+
+    def get_package_description(self, package):
+        """
+        Get package ebuild data.
+
+        Args:
+            package: g_collections.Package instance.
+
+        Returns:
+            Dictionary with package ebuild data.
+        """
+        # a possible exception should be catched in the caller
+        pp = get_pkg_json(package.name)
+        desc = dict(get_ebuild_data(pp))
+
+        desc.update(get_common_data())
+        return desc
 
 
 class NodepkgDBGenerator(DBGenerator):
@@ -39,6 +66,8 @@ class NodepkgDBGenerator(DBGenerator):
                                                  preferred_db_version=preferred_db_version,
                                                  preferred_category_format=preferred_category_format)
         self.count = count
+        self.gs_nodepkg_dir = self.get_gs_nodepkg_dir()
+        self.pkg_cache_file = self.get_pkg_cache_file()
 
     def get_download_uries(self, common_config, config):
         """
@@ -46,6 +75,18 @@ class NodepkgDBGenerator(DBGenerator):
         """
         self.repo_uri = config["repo_uri"]
         return [{"uri": self.repo_uri + "nodepkg?%3Aaction=index", "output": "packages"}]
+
+    def get_gs_nodepkg_dir(self):
+        """
+        Return location we store config files and data
+        """
+        return os.path.abspath("%s/.gs_nodepkg" % os.path.expanduser("~"))
+
+    def get_pkg_cache_file(self):
+        """
+        Returns filename of pkg cache
+        """
+        return os.path.abspath('%s/pkg_list.pkl' % self.gs_nodepkg_dir)
 
     def download_data(self, common_config, config):
         """
@@ -62,13 +103,30 @@ class NodepkgDBGenerator(DBGenerator):
         uries = self.decode_download_uries(uries)
         data = {}
 
-        # npm install all-the-package-names --save
-        status, output = subprocess.getstatusoutput(
-            "/home/sabayonuser/node_modules/.bin/all-the-package-names")
-        if status == 0:
-            data = self.parse_data(output)
+        def get_data():
+            # npm install all-the-package-names --save
+            # npm install npm-remote-ls --save
+            status, output = subprocess.getstatusoutput(
+                "%s/node_modules/.bin/all-the-package-names" % os.path.expanduser("~"))
+            if status == 0:
+                return output
+            else:
+                raise Exception('all-the-package-names error!')
+
+        def get_data_from_cache():
+            with open(self.pkg_cache_file, 'r') as f:
+                return f.read()
+
+        if not os.path.exists(self.gs_nodepkg_dir):
+            os.mkdir(self.gs_nodepkg_dir)
+        if os.path.exists(self.pkg_cache_file):
+            output = get_data_from_cache()
         else:
-            raise Exception('all-the-package-names error!')
+            output = get_data()
+            with open(self.pkg_cache_file, 'w') as f:
+                f.write(output)
+
+        data = self.parse_data(output)
         return data
 
     def parse_data(self, data_f):
@@ -85,25 +143,26 @@ class NodepkgDBGenerator(DBGenerator):
         if self.count:
             last = self.count
         for i, entry in enumerate(data_f.split('\n')):
-            if i >= 10:
-                break
-            status, output = subprocess.getstatusoutput(
-                "npm view " + entry + ' name description version repository license dist')
+            # if i < 11750:
+            if i > 10:
+                continue
+                # break
+                pass
+            (status, pp, output) = get_pkg_json(entry)
             if status == 0:
-                import re
-                import json
-                output = re.sub(r'([a-zA-Z_]+) =', r'"\1":', output)
-                output = re.sub(r' ([a-zA-Z_]+):', r' "\1":', output)
-                output = re.sub("(['}])\n", r"\1,\n", output)
-                output = '{' + output.replace("'", '"') + '}'
+                print(i, '=========================')
                 print(output)
+                print('--------------------------')
 
-                pp = json.loads(output)
                 print(pp)
             else:
                 continue
 
-            package, description, version = pp['name'], pp['description'], pp['version']
+            package, version = pp['name'], pp['version']
+            if 'description' in pp:
+                description = pp['description']
+            else:
+                description = ''
             print(package)
             data["index"][(package, version)] = (description, pp)
 
@@ -116,12 +175,7 @@ class NodepkgDBGenerator(DBGenerator):
         category = "dev-nodejs"
         pkg_db.add_category(category)
 
-        common_data = {}
-        common_data["eclasses"] = ['g-sorcery', 'gs-nodepkg']
-        common_data["maintainer"] = [{'email': 'tastuteche@yahoo.com',
-                                      'name': 'Tastu Teche'}]
-        common_data["dependencies"] = serializable_elist(separator="\n\t")
-        pkg_db.set_common_data(category, common_data)
+        pkg_db.set_common_data(category, get_common_data())
 
         # todo: write filter functions
         allowed_ords_pkg = set(range(ord('a'), ord('z') + 1)) | set(range(ord('A'), ord('Z') + 1)) | \
@@ -137,20 +191,6 @@ class NodepkgDBGenerator(DBGenerator):
 
         for (package, version), (description, pp) in data["index"].items():
 
-            pkg_data = pp
-
-            files_src_uri = pp["dist"]["tarball"]
-            md5 = pp["dist"]["shasum"]
-
-            homepage = pp["repository"]["url"]
-            pkg_license = ''
-            py_versions = []
-
-            if "license" in pp:
-                pkg_license = pp["license"]
-            pkg_license = self.convert(
-                [common_config, config], "licenses", pkg_license)
-
             filtered_package = "".join(
                 [x for x in package if ord(x) in allowed_ords_pkg])
             description = "".join(
@@ -161,17 +201,6 @@ class NodepkgDBGenerator(DBGenerator):
             if not match_object:
                 filtered_version = pseudoversion
 
-            ebuild_data = {}
-            ebuild_data["realname"] = package
-            ebuild_data["realversion"] = version
-
-            ebuild_data["description"] = description
-            ebuild_data["longdescription"] = description
-
-            ebuild_data["homepage"] = homepage
-            ebuild_data["license"] = pkg_license
-            ebuild_data["source_uri"] = files_src_uri
-            ebuild_data["md5"] = md5
-
+            ebuild_data = get_ebuild_data(pp, common_config, config)
             pkg_db.add_package(
                 Package(category, filtered_package, filtered_version), ebuild_data)
