@@ -17,51 +17,58 @@ import os
 from g_sorcery.ebuild import DefaultEbuildGenerator
 
 Layout = collections.namedtuple("Layout",
-    ["vars_before_inherit", "inherit", "vars_after_description", "vars_after_keywords"])
-  
+                                ["vars_before_inherit", "inherit", "vars_after_description", "vars_after_keywords"])
+
 
 class NodepkgEbuildWithoutDigestGenerator(DefaultEbuildGenerator):
     """
     Implementation of ebuild generator without sources digesting.
     """
-    def __init__(self, package_db):
 
+    def __init__(self, package_db):
+        #, {"name" : "nodejs_compat", "raw" : True}
         vars_before_inherit = \
-          ["realname", "realversion",
-           {"name" : "repo_uri", "value" : 'https://www.npmjs.com/package/${REALNAME}/'},
-           {"name" : "sourcefile", "value" : '${REALNAME}-${REALVERSION}.tgz'}, {"name" : "nodejs_compat", "raw" : True}]
+            ["realname", "realversion",
+             {"name": "repo_uri", "value": 'https://www.npmjs.com/package/${REALNAME}/'},
+                {"name": "sourcefile", "value": '${REALNAME}-${REALVERSION}.tgz'}]
 
         inherit = ["gs-nodepkg"]
-        
+
         vars_after_description = \
-          ["homepage", "license"]
+            ["homepage", "license"]
 
         vars_after_keywords = \
-          []
+            []
 
-        layout = Layout(vars_before_inherit, inherit, vars_after_description, vars_after_keywords)
+        layout = Layout(vars_before_inherit, inherit,
+                        vars_after_description, vars_after_keywords)
 
-        super(NodepkgEbuildWithoutDigestGenerator, self).__init__(package_db, layout)
+        super(NodepkgEbuildWithoutDigestGenerator,
+              self).__init__(package_db, layout)
+
 
 class NodepkgEbuildWithDigestGenerator(DefaultEbuildGenerator):
     """
     Implementation of ebuild generator with sources digesting.
     """
-    def __init__(self, package_db):
 
+    def __init__(self, package_db):
+        #, {"name" : "nodejs_compat", "raw" : True}
         vars_before_inherit = \
-          ["realname", "realversion",
-           {"name" : "digest_sources", "value" : "yes"}, {"name" : "nodejs_compat", "raw" : True}]
+            ["realname", "realversion",
+             {"name": "digest_sources", "value": "yes"}]
 
         inherit = ["gs-nodepkg"]
-        
+
         vars_after_description = \
-          ["homepage", "license",
-           {"name" : "src_uri", "value" : '"http://registry.npmjs.org/${REALNAME}/-/${REALNAME}-${REALVERSION}.tgz"'}]
+            ["homepage", "license",
+             {"name": "src_uri", "value": '"http://registry.npmjs.org/${REALNAME}/-/${REALNAME}-${REALVERSION}.tgz"'}]
 
         vars_after_keywords = \
-          []
+            []
 
-        layout = Layout(vars_before_inherit, inherit, vars_after_description, vars_after_keywords)
+        layout = Layout(vars_before_inherit, inherit,
+                        vars_after_description, vars_after_keywords)
 
-        super(NodepkgEbuildWithDigestGenerator, self).__init__(package_db, layout)
+        super(NodepkgEbuildWithDigestGenerator,
+              self).__init__(package_db, layout)
